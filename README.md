@@ -127,3 +127,4 @@ meson compile -C build
 - [libfprint MR !626](https://gitlab.freedesktop.org/libfprint/libfprint/-/merge_requests/626) by the libfprint community
 - [libfprint-validity-data](https://gitlab.freedesktop.org/ggiesen/libfprint-validity-data)
 - GNOME Shell / Fedora 项目
+- 感谢 [OpenCode](https://opencode.ai) 协助完成驱动移植排查、GDM 登录补丁分析和本项目构建工作流的搭建
