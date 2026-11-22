@@ -99,7 +99,8 @@ jobs:
           chmod +x "$PKG"/scripts/*.sh
           tar -czf "${PKG}.tar.gz" "$PKG"
           ls -lh "${PKG}.tar.gz"
-          tar -tzf "${PKG}.tar.gz" | head -20
+          # Verify archive integrity without piping to head (would cause SIGPIPE / exit 141 with pipefail)
+          tar -tzf "${PKG}.tar.gz" > /dev/null
 
       - name: Create Release
         if: startsWith(github.ref, 'refs/tags/v')
