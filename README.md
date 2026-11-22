@@ -1,14 +1,22 @@
-# HP Elite x2 G4 指纹解锁（Fedora 45）
+# HP Elite x2 G4 指纹解锁（Fedora）
 
-让 HP Elite x2 G4 上的 `06cb:00b7 Synaptics/Validity` 指纹传感器在 Fedora 45 上工作，支持：
+让 HP Elite x2 G4 上的 `06cb:00b7 Synaptics/Validity` 指纹传感器在 Fedora 上工作，支持：
 
 - 🔓 指纹解锁 GNOME 锁屏
 - 🔐 `sudo` 指纹认证
 - 🖥️ GDM 登录界面指纹登录（GNOME Shell 51 默认禁用，本项目用可逆补丁启用）
 
+## 当前支持
+
+| Fedora 版本 | GNOME Shell | Release 标签 | 状态 |
+|---|---|---|---|
+| 45 | 51 | `v1.0.0-fedora45` | ✅ 已验证 |
+
+> 其他 Fedora 版本尚未验证。欢迎在 Issues 里反馈测试结果，或在 workflow_dispatch 里手动触发构建尝试。
+
 ## 背景
 
- Fedora 自带的 libfprint **不支持**这个传感器（`fprintd-list` 显示 `No devices available`）。本项目使用上游未合并的 [libfprint MR !626](https://gitlab.freedesktop.org/libfprint/libfprint/-/merge_requests/626) 原生驱动，已在同芯片的 HP EliteBook G6 系列上验证。
+Fedora 自带的 libfprint **不支持**这个传感器（`fprintd-list` 显示 `No devices available`）。本项目使用上游未合并的 [libfprint MR !626](https://gitlab.freedesktop.org/libfprint/libfprint/-/merge_requests/626) 原生驱动，已在同芯片的 HP EliteBook G6 系列上验证。
 
 GNOME Shell 51 有意把指纹限制在锁屏界面（登录界面不显示指纹选项），本项目用一个**可逆的 GResource overlay 补丁**去掉这个限制，不修改任何发行版 RPM 文件。
 
@@ -16,13 +24,13 @@ GNOME Shell 51 有意把指纹限制在锁屏界面（登录界面不显示指�
 
 ## 下载
 
-到 [Releases 页面](../../releases) 下载最新的 `fingerprint-fedora45-v*.tar.gz`。
+到 [Releases 页面](../../releases) 下载对应你 Fedora 版本的包，例如 `fingerprint-validity-v1.0.0-fedora45.tar.gz`。
 
-> 仅适用于 **Fedora 45**（GNOME Shell 51）。其他版本请不要使用，编译产物不兼容。
+> 编译产物与 Fedora 版本绑定（glibc 等依赖），请下载与系统版本匹配的包。
 
 ## 安装步骤
 
-### 0. 确认指纹功能已启用（ Fedora 默认已启用）
+### 0. 确认指纹功能已启用（Fedora 默认已启用）
 
 ```bash
 authselect current | grep with-fingerprint
@@ -37,8 +45,8 @@ sudo authselect enable-feature with-fingerprint
 ### 1. 安装驱动
 
 ```bash
-tar -xzf fingerprint-fedora45-v*.tar.gz
-cd fingerprint-fedora45-v*
+tar -xzf fingerprint-validity-v*.tar.gz
+cd fingerprint-validity-v*
 sudo bash scripts/01-install.sh
 ```
 
@@ -88,7 +96,7 @@ sudo bash scripts/04-uninstall.sh           # 卸载自定义驱动
 
 ## 从源码构建
 
-Release 包是 CI 在 Fedora 45 容器里编译的。如需自行构建：
+Release 包是 CI 在对应 Fedora 容器里编译的。如需自行构建：
 
 ```bash
 sudo dnf -y install gcc gcc-c++ meson ninja-build make python3 \
@@ -106,6 +114,13 @@ meson compile -C build
 ```
 
 数据文件来自 [libfprint-validity-data](https://gitlab.freedesktop.org/ggiesen/libfprint-validity-data)，运行 `python3 generate_data.py` 生成。
+
+## 添加新 Fedora 版本支持
+
+1. 确认该版本的 GNOME Shell 里 GDM 指纹补丁逻辑是否变化（检查 `authServicesLegacy.js` 的 `_connectFingerprintManager`）
+2. 在 `.github/workflows/release.yml` 的 `workflow_dispatch` options 里加入新版本号
+3. 从 Actions 页面用 workflow_dispatch 手动触发构建测试
+4. 验证通过后，打 tag 格式 `v1.0.0-fedora<版本>`（如 `v1.0.0-fedora46`）触发正式 Release
 
 ## 致谢
 
