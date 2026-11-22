@@ -1,0 +1,110 @@
+name: Build Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container:
+      image: fedora:45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          dnf -y install \
+            gcc gcc-c++ meson ninja-build make python3 \
+            glib2-devel libgusb-devel libgudev-devel \
+            openssl-devel pixman-devel systemd-devel \
+            git tar gzip
+
+      - name: Clone libfprint MR !626 (Validity VCSFW driver)
+        run: |
+          git clone https://gitlab.freedesktop.org/libfprint/libfprint.git /tmp/libfprint
+          cd /tmp/libfprint
+          git fetch origin refs/merge-requests/626/head
+          git checkout FETCH_HEAD
+          git rev-parse HEAD > /tmp/libfprint-commit.txt
+
+      - name: Build libfprint
+        run: |
+          cd /tmp/libfprint
+          meson setup build --prefix=/usr/local --libdir=lib64 --buildtype=release \
+            -Dintrospection=false -Ddoc=false -Dgtk-examples=false \
+            -Dinstalled-tests=false -Dudev_rules=disabled -Dudev_hwdb=disabled
+          meson compile -C build
+
+      - name: Verify build output
+        run: |
+          test -f /tmp/libfprint/build/libfprint/libfprint-2.so.2.0.0
+          ls -lh /tmp/libfprint/build/libfprint/libfprint-2.so.2.0.0
+
+      - name: Assemble release package
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF_NAME:-manual}"
+          PKG="fingerprint-fedora45-${TAG}"
+          STAGE="/tmp/stage/$PKG"
+          mkdir -p "$STAGE/lib" "$STAGE/data"
+          cp /tmp/libfprint/build/libfprint/libfprint-2.so.2.0.0 "$STAGE/lib/"
+          cp -a "$GITHUB_WORKSPACE/data/validity" "$STAGE/data/"
+          cp -r "$GITHUB_WORKSPACE/scripts" "$STAGE/"
+          cp "$GITHUB_WORKSPACE/README.md" "$GITHUB_WORKSPACE/LICENSE" "$STAGE/"
+          # 记录源码版本，便于追溯
+          {
+            echo "fingerprint-fedora45 - ${TAG}"
+            echo "Built: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            echo "libfprint source: https://gitlab.freedesktop.org/libfprint/libfprint/-/merge_requests/626"
+            echo "libfprint commit: $(cat /tmp/libfprint-commit.txt)"
+            echo "Data source: https://gitlab.freedesktop.org/ggiesen/libfprint-validity-data"
+          } > "$STAGE/BUILD_INFO.txt"
+          # 确保脚本可执行
+          chmod +x "$STAGE"/scripts/*.sh
+          cd /tmp/stage
+          tar -czf "${GITHUB_WORKSPACE}/${PKG}.tar.gz" "$PKG"
+
+      - name: Create Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: fingerprint-fedora45-*.tar.gz
+          generate_release_notes: true
+          body: |
+            ## HP Elite x2 G4 指纹解锁 (Fedora 45)
+
+            支持传感器 `06cb:00b7 Synaptics/Validity Fingerprint reader [HP G6]`。
+
+            ### 下载使用
+            下载 `fingerprint-fedora45-${{ github.ref_name }}.tar.gz`，解压后：
+
+            ```bash
+            tar -xzf fingerprint-fedora45-${{ github.ref_name }}.tar.gz
+            cd fingerprint-fedora45-${{ github.ref_name }}
+            sudo bash scripts/01-install.sh
+            fprintd-enroll -f right-index-finger $USER
+            sudo bash scripts/02-enable-gdm-login.sh   # 启用 GDM 登录指纹
+            ```
+
+            详细步骤见包内 README.md。
+
+            ### 内容
+            - 自定义 libfprint 库（MR !626，commit 见 BUILD_INFO.txt）
+            - Validity 传感器数据文件
+            - 安装/卸载/撤销脚本
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Keep artifact for manual runs
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v4
+        with:
+          name: fingerprint-fedora45-package
+          path: fingerprint-fedora45-*.tar.gz
