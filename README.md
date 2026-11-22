@@ -1,5 +1,7 @@
 # HP Elite x2 G4 指纹解锁（Fedora）
 
+[English](#fingerprint-unlock-on-hp-elite-x2-g4-fedora) | 中文
+
 让 HP Elite x2 G4 上的 `06cb:00b7 Synaptics/Validity` 指纹传感器在 Fedora 上工作，支持：
 
 - 🔓 指纹解锁 GNOME 锁屏
@@ -128,3 +130,138 @@ meson compile -C build
 - [libfprint-validity-data](https://gitlab.freedesktop.org/ggiesen/libfprint-validity-data)
 - GNOME Shell / Fedora 项目
 - 感谢 [OpenCode](https://opencode.ai) 协助完成驱动移植排查、GDM 登录补丁分析和本项目构建工作流的搭建
+
+---
+
+# Fingerprint Unlock on HP Elite x2 G4 (Fedora)
+
+[中文](#hp-elite-x2-g4-指纹解锁fedora) | English
+
+Make the `06cb:00b7 Synaptics/Validity` fingerprint sensor on the HP Elite x2 G4 work with Fedora.
+
+- 🔓 Fingerprint unlock for the GNOME lock screen
+- 🔐 Fingerprint authentication for `sudo`
+- 🖥️ Fingerprint login at the GDM screen (disabled by default in GNOME Shell 51, enabled here with a reversible patch)
+
+## Currently supported
+
+| Fedora | GNOME Shell | Release tag | Status |
+|---|---|---|---|
+| 45 | 51 | `v1.0.0-fedora45` | ✅ Verified |
+
+> Other Fedora versions are not verified yet. Please report results in Issues, or try a manual build via `workflow_dispatch`.
+
+## Background
+
+Fedora's stock libfprint **does not support** this sensor (`fprintd-list` shows `No devices available`). This project uses the native driver from the unmerged upstream [libfprint MR !626](https://gitlab.freedesktop.org/libfprint/libfprint/-/merge_requests/626), verified on HP EliteBook G6 machines with the same chip.
+
+GNOME Shell 51 intentionally restricts fingerprint authentication to the lock screen (no fingerprint option at the login screen). This project uses a **reversible GResource overlay patch** to remove that restriction without modifying any distribution RPM files.
+
+> ⚠️ **Warning**: The driver's first use may need to pair with the sensor, **overwriting fingerprint data stored on the chip**. Windows Hello fingerprints in a dual-boot setup may stop working. This is experimental, unmerged upstream code.
+
+## Download
+
+Go to the [Releases page](../../releases) and download the package for your Fedora version, e.g. `fingerprint-validity-v1.0.0-fedora45.tar.gz`.
+
+> Binaries are tied to the Fedora version (glibc and other dependencies). Download the package matching your system.
+
+## Installation
+
+### 0. Make sure fingerprint is enabled (enabled by default on Fedora)
+
+```bash
+authselect current | grep with-fingerprint
+```
+
+If there is no output, enable it first:
+
+```bash
+sudo authselect enable-feature with-fingerprint
+```
+
+### 1. Install the driver
+
+```bash
+tar -xzf fingerprint-validity-v*.tar.gz
+cd fingerprint-validity-v*
+sudo bash scripts/01-install.sh
+```
+
+Confirm the device is detected:
+
+```bash
+fprintd-list $USER
+# should show: found 1 devices / Validity VCSFW Fingerprint Sensor
+```
+
+### 2. Enroll your fingerprint (physically touch the sensor)
+
+```bash
+fprintd-enroll -f right-index-finger $USER
+```
+
+Press the sensor repeatedly as prompted. Verify:
+
+```bash
+fprintd-verify $USER    # enrolled finger -> verify-match
+```
+
+Test sudo authentication:
+
+```bash
+sudo -k && sudo true && echo OK
+```
+
+### 3. Enable fingerprint at the GDM login screen (optional)
+
+```bash
+sudo bash scripts/02-enable-gdm-login.sh
+```
+
+**Log out and back in, or reboot**. At the GDM screen, select your user and the fingerprint option should appear; touch the sensor to log in. Password login still works as a fallback.
+
+> Note: fingerprint login does **not** unlock the GNOME keyring. Applications will still ask for the keyring password on first use — this is expected.
+
+## Uninstall / Rollback
+
+```bash
+sudo bash scripts/03-disable-gdm-login.sh   # remove the GDM login patch
+sudo bash scripts/04-uninstall.sh           # remove the custom driver
+```
+
+Only `/usr/local`, `/etc/systemd/system/fprintd.service.d/`, and `/etc/systemd/user/org.gnome.Shell@gdm.service.d/` are written to. **No distribution RPM files are overwritten.** Fingerprints already enrolled on the sensor are not deleted.
+
+## Build from source
+
+Release packages are compiled by CI in the matching Fedora container. To build manually:
+
+```bash
+sudo dnf -y install gcc gcc-c++ meson ninja-build make python3 \
+    glib2-devel libgusb-devel libgudev-devel openssl-devel \
+    pixman-devel systemd-devel git
+
+git clone https://gitlab.freedesktop.org/libfprint/libfprint.git /tmp/libfprint
+cd /tmp/libfprint
+git fetch origin refs/merge-requests/626/head
+git checkout FETCH_HEAD
+meson setup build --prefix=/usr/local --libdir=lib64 --buildtype=release \
+    -Dintrospection=false -Ddoc=false -Dgtk-examples=false \
+    -Dinstalled-tests=false -Dudev_rules=disabled -Dudev_hwdb=disabled
+meson compile -C build
+```
+
+Data files come from [libfprint-validity-data](https://gitlab.freedesktop.org/ggiesen/libfprint-validity-data); generate them with `python3 generate_data.py`.
+
+## Adding support for another Fedora version
+
+1. Check whether the GDM fingerprint patch logic changed in that version's GNOME Shell (inspect `_connectFingerprintManager` in `authServicesLegacy.js`)
+2. Add the new version number to the `workflow_dispatch` options in `.github/workflows/release.yml`
+3. Trigger a test build from the Actions page using `workflow_dispatch`
+4. Once verified, push a tag like `v1.0.0-fedora46` to publish a Release
+
+## Acknowledgements
+
+- [libfprint MR !626](https://gitlab.freedesktop.org/libfprint/libfprint/-/merge_requests/626) by the libfprint community
+- [libfprint-validity-data](https://gitlab.freedesktop.org/ggiesen/libfprint-validity-data)
+- GNOME Shell / Fedora projects
+- Thanks to [OpenCode](https://opencode.ai) for helping with driver troubleshooting, the GDM patch analysis, and this project's build workflow

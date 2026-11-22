@@ -24,8 +24,7 @@ jobs:
         id: meta
         shell: bash
         run: |
-          # Tag 格式: v1.0.0-fedora45  ->  FEDORA_VERSION=45
-          # 手动触发时用 workflow_dispatch 的 inputs
+          # Tag format: v1.0.0-fedora45  ->  FEDORA_VERSION=45
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             echo "fedora_version=${{ inputs.fedora_version }}" >> "$GITHUB_OUTPUT"
             echo "tag=manual-fedora${{ inputs.fedora_version }}" >> "$GITHUB_OUTPUT"
@@ -33,7 +32,7 @@ jobs:
             TAG="${GITHUB_REF_NAME}"
             VER=$(echo "$TAG" | sed -nE 's/.*-fedora([0-9]+).*/\1/p')
             if [ -z "$VER" ]; then
-              echo "::error::Tag 格式错误，应为 v1.0.0-fedora45 形式"
+              echo "::error::Invalid tag format, expected v1.0.0-fedora45"
               exit 1
             fi
             echo "fedora_version=$VER" >> "$GITHUB_OUTPUT"
@@ -43,13 +42,15 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Build in Fedora container
+      # Compile AND assemble inside the Fedora container so the produced files
+      # never need to cross a Docker volume boundary as root-owned artifacts.
+      - name: Build and package in Fedora container
         run: |
-          # 用 podman/docker 在 Fedora 容器里编译（runner 自带 docker）
+          mkdir -p "$GITHUB_WORKSPACE/dist"
           docker run --rm \
-            -v "$GITHUB_WORKSPACE":/workspace:ro \
-            -v /tmp/libfprint-build:/build \
-            -e FE_VERSION="${{ steps.meta.outputs.fedora_version }}" \
+            -v "$GITHUB_WORKSPACE":/workspace \
+            -e TAG="${{ steps.meta.outputs.tag }}" \
+            -e VER="${{ steps.meta.outputs.fedora_version }}" \
             fedora:${{ steps.meta.outputs.fedora_version }} \
             bash -s <<'CONTAINER_SCRIPT'
           set -euo pipefail
@@ -63,46 +64,47 @@ jobs:
           cd /tmp/libfprint
           git fetch origin refs/merge-requests/626/head
           git checkout FETCH_HEAD
-          git rev-parse HEAD > /build/libfprint-commit.txt
+          COMMIT=$(git rev-parse HEAD)
 
           meson setup build --prefix=/usr/local --libdir=lib64 --buildtype=release \
             -Dintrospection=false -Ddoc=false -Dgtk-examples=false \
             -Dinstalled-tests=false -Dudev_rules=disabled -Dudev_hwdb=disabled
           meson compile -C build
           test -f build/libfprint/libfprint-2.so.2.0.0
-          cp build/libfprint/libfprint-2.so.2.0.0 /build/libfprint-2.so.2.0.0
-          ls -lh /build/libfprint-2.so.2.0.0
-          CONTAINER_SCRIPT
 
-      - name: Assemble release package
-        run: |
-          set -euo pipefail
-          TAG="${{ steps.meta.outputs.tag }}"
-          VER="${{ steps.meta.outputs.fedora_version }}"
           PKG="fingerprint-validity-${TAG}"
-          STAGE="/tmp/stage/$PKG"
+          STAGE="/tmp/stage/${PKG}"
           mkdir -p "$STAGE/lib" "$STAGE/data"
-          cp /tmp/libfprint-build/libfprint-2.so.2.0.0 "$STAGE/lib/"
-          cp -a "$GITHUB_WORKSPACE/data/validity" "$STAGE/data/"
-          cp -r "$GITHUB_WORKSPACE/scripts" "$STAGE/"
-          cp "$GITHUB_WORKSPACE/README.md" "$GITHUB_WORKSPACE/LICENSE" "$STAGE/"
+          cp build/libfprint/libfprint-2.so.2.0.0 "$STAGE/lib/"
+          cp -a /workspace/data/validity "$STAGE/data/"
+          cp -r /workspace/scripts "$STAGE/"
+          cp /workspace/README.md /workspace/LICENSE "$STAGE/"
           {
             echo "fingerprint-validity - ${TAG}"
             echo "Built: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
             echo "Target: Fedora ${VER}"
             echo "libfprint source: https://gitlab.freedesktop.org/libfprint/libfprint/-/merge_requests/626"
-            echo "libfprint commit: $(cat /tmp/libfprint-build/libfprint-commit.txt)"
+            echo "libfprint commit: ${COMMIT}"
             echo "Data source: https://gitlab.freedesktop.org/ggiesen/libfprint-validity-data"
           } > "$STAGE/BUILD_INFO.txt"
           chmod +x "$STAGE"/scripts/*.sh
-          cd /tmp/stage
-          tar -czf "${GITHUB_WORKSPACE}/${PKG}.tar.gz" "$PKG"
+
+          tar -czf "/workspace/dist/${PKG}.tar.gz" -C /tmp/stage "$PKG"
+          ls -lh "/workspace/dist/${PKG}.tar.gz"
+          CONTAINER_SCRIPT
+
+      - name: Verify package
+        shell: bash
+        run: |
+          set -euo pipefail
+          ls -lh "$GITHUB_WORKSPACE"/dist/*.tar.gz
+          tar -tzf "$GITHUB_WORKSPACE"/dist/*.tar.gz | head -20
 
       - name: Create Release
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          files: fingerprint-validity-*.tar.gz
+          files: dist/*.tar.gz
           generate_release_notes: true
           body: |
             ## HP Elite x2 G4 指纹解锁 — Fedora ${{ steps.meta.outputs.fedora_version }}
@@ -122,10 +124,29 @@ jobs:
 
             详细步骤见包内 README.md。
 
-            ### 内容
-            - 自定义 libfprint 库（MR !626，commit 见 BUILD_INFO.txt）
-            - Validity 传感器数据文件
-            - 安装/卸载/撤销脚本
+            ---
+
+            ## Fingerprint unlock for HP Elite x2 G4 — Fedora ${{ steps.meta.outputs.fedora_version }}
+
+            Supports the `06cb:00b7 Synaptics/Validity` fingerprint sensor.
+
+            ### Download & install
+            Download `fingerprint-validity-${{ steps.meta.outputs.tag }}.tar.gz` and run:
+
+            ```bash
+            tar -xzf fingerprint-validity-${{ steps.meta.outputs.tag }}.tar.gz
+            cd fingerprint-validity-${{ steps.meta.outputs.tag }}
+            sudo bash scripts/01-install.sh
+            fprintd-enroll -f right-index-finger $USER
+            sudo bash scripts/02-enable-gdm-login.sh   # enable GDM fingerprint login
+            ```
+
+            See README.md inside the package for full instructions (中文 / English).
+
+            ### Contents / 内容
+            - Custom libfprint library (MR !626, commit in BUILD_INFO.txt)
+            - Validity sensor data files
+            - Install / uninstall / rollback scripts
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -134,4 +155,4 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: fingerprint-validity-${{ steps.meta.outputs.tag }}
-          path: fingerprint-validity-*.tar.gz
+          path: dist/*.tar.gz
