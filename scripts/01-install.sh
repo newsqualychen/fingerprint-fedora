@@ -41,15 +41,39 @@ cat > /etc/systemd/system/fprintd.service.d/10-validity.conf <<'EOF'
 Environment=LD_LIBRARY_PATH=/usr/local/lib64
 EOF
 
+# 4. 防止传感器被 USB autosuspend / 睡眠后停留在 suspended 状态
+#    否则 libfprint 会报 "Cannot run while suspended"，指纹失效。
+DEV=$(find /sys/bus/usb/devices -maxdepth 1 -type l 2>/dev/null | while read -r d; do
+    [ -r "$d/idVendor" ] && grep -qi '06cb' "$d/idVendor" 2>/dev/null &&
+    [ -r "$d/idProduct" ] && grep -qi '00b7' "$d/idProduct" 2>/dev/null &&
+    basename "$d"
+done | head -1)
+[ -n "$DEV" ] && echo on > "/sys/bus/usb/devices/$DEV/power/control" 2>/dev/null || true
+
+cat > /etc/udev/rules.d/99-fingerprint-no-suspend.rules <<'EOF'
+# HP Elite x2 G4 / Validity 06cb:00b7 fingerprint sensor
+# Keep awake: libfprint reports "Cannot run while suspended" on autosuspend.
+ACTION=="add", SUBSYSTEM=="usb", ATTR{idVendor}=="06cb", ATTR{idProduct}=="00b7", ATTR{power/control}="on"
+EOF
+
+mkdir -p /usr/lib/systemd/system-sleep
+cat > /usr/lib/systemd/system-sleep/99-fingerprint-resume <<'EOF'
+#!/bin/bash
+# Reinitialize fprintd after resume to clear libfprint's suspended state.
+[ "$1" = "post" ] && /usr/bin/systemctl try-restart fprintd.service >/dev/null 2>&1 || true
+EOF
+chmod +x /usr/lib/systemd/system-sleep/99-fingerprint-resume
+
 if command -v restorecon >/dev/null 2>&1; then
     restorecon -R /usr/local/lib64/libfprint-2.so* \
                   /usr/local/share/libfprint \
                   /etc/systemd/system/fprintd.service.d || true
 fi
 
+udevadm control --reload-rules 2>/dev/null || true
 systemctl daemon-reload
 systemctl try-restart fprintd.service || true
 
-echo "驱动安装完成。"
+echo "驱动安装完成（含防休眠修复）。"
 echo "请确认 PAM 已启用指纹: authselect current | grep with-fingerprint"
 echo "然后运行: fprintd-enroll -f right-index-finger ${SUDO_USER:-squaly}"

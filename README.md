@@ -12,7 +12,7 @@ Make the `06cb:00b7 Synaptics/Validity` fingerprint sensor on the HP Elite x2 G4
 
 | Fedora | GNOME Shell | Release tag | Status |
 |---|---|---|---|
-| 45 | 51 | `v1.0.0-fedora45` | ✅ Verified |
+| 45 | 51 | `v1.0.1-fedora45` | ✅ Verified |
 
 > Other Fedora versions are not verified yet. Please report results in Issues, or try a manual build via `workflow_dispatch`.
 
@@ -26,7 +26,7 @@ GNOME Shell 51 intentionally restricts fingerprint authentication to the lock sc
 
 ## Download
 
-Go to the [Releases page](../../releases) and download the package for your Fedora version, e.g. `fingerprint-validity-v1.0.0-fedora45.tar.gz`.
+Go to the [Releases page](../../releases) and download the package for your Fedora version, e.g. `fingerprint-validity-v1.0.1-fedora45.tar.gz`.
 
 > Binaries are tied to the Fedora version (glibc and other dependencies). Download the package matching your system.
 
@@ -86,6 +86,18 @@ sudo bash scripts/02-enable-gdm-login.sh
 **Log out and back in, or reboot**. At the GDM screen, select your user and the fingerprint option should appear; touch the sensor to log in. Password login still works as a fallback.
 
 > Note: fingerprint login does **not** unlock the GNOME keyring. Applications will still ask for the keyring password on first use — this is expected.
+
+### 4. Fix "Cannot run while suspended" after sleep / system update (optional)
+
+If fingerprint auth stops working after suspend/resume or a system update, libfprint may log
+`Device reported an error during identify: Cannot run while suspended`. The install script
+already applies this fix; existing users can apply or re-apply it with:
+
+```bash
+sudo bash scripts/05-fix-suspended.sh
+```
+
+It disables USB autosuspend for the sensor and restarts fprintd after every resume.
 
 ## Uninstall / Rollback
 
@@ -147,7 +159,7 @@ Data files come from [libfprint-validity-data](https://gitlab.freedesktop.org/gg
 
 | Fedora 版本 | GNOME Shell | Release 标签 | 状态 |
 |---|---|---|---|
-| 45 | 51 | `v1.0.0-fedora45` | ✅ 已验证 |
+| 45 | 51 | `v1.0.1-fedora45` | ✅ 已验证 |
 
 > 其他 Fedora 版本尚未验证。欢迎在 Issues 里反馈测试结果，或在 workflow_dispatch 里手动触发构建尝试。
 
@@ -161,7 +173,7 @@ GNOME Shell 51 有意把指纹限制在锁屏界面（登录界面不显示指�
 
 ## 下载
 
-到 [Releases 页面](../../releases) 下载对应你 Fedora 版本的包，例如 `fingerprint-validity-v1.0.0-fedora45.tar.gz`。
+到 [Releases 页面](../../releases) 下载对应你 Fedora 版本的包，例如 `fingerprint-validity-v1.0.1-fedora45.tar.gz`。
 
 > 编译产物与 Fedora 版本绑定（glibc 等依赖），请下载与系统版本匹配的包。
 
@@ -221,6 +233,18 @@ sudo bash scripts/02-enable-gdm-login.sh
 **重新登录或重启**后，在 GDM 界面点选用户名，应能看到指纹选项，按手指即可登录。密码登录仍可用（回退）。
 
 > 注：指纹登录**不会**解锁 GNOME keyring，应用首次请求 keyring 时仍会要密码，这是正常现象。
+
+### 4. 修复睡眠/系统更新后的 "Cannot run while suspended"（可选）
+
+如果机器睡眠唤醒或系统更新后指纹失效，日志里出现
+`Device reported an error during identify: Cannot run while suspended`，可运行：
+
+```bash
+sudo bash scripts/05-fix-suspended.sh
+```
+
+安装脚本已自动包含此修复，此脚本供已安装用户重新应用。它会禁止传感器 USB 自动挂起，
+并在每次唤醒后重启 fprintd。
 
 ## 卸载 / 回滚
 

@@ -149,6 +149,7 @@ jobs:
             - Custom libfprint library (MR !626, commit in BUILD_INFO.txt)
             - Validity sensor data files
             - Install / uninstall / rollback scripts
+            - Fix for "Cannot run while suspended" after sleep / system update
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 

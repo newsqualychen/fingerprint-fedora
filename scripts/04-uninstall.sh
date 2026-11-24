@@ -14,6 +14,8 @@ rm -f /usr/local/lib64/libfprint-2.so.2.0.0 \
 rm -rf /usr/local/share/libfprint/validity
 rm -f /etc/systemd/system/fprintd.service.d/10-validity.conf
 rmdir --ignore-fail-on-non-empty /etc/systemd/system/fprintd.service.d 2>/dev/null || true
+rm -f /etc/udev/rules.d/99-fingerprint-no-suspend.rules
+rm -f /usr/lib/systemd/system-sleep/99-fingerprint-resume
 
 systemctl daemon-reload
 systemctl try-restart fprintd.service || true
